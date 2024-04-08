@@ -18,6 +18,19 @@ from detectron2.modeling.backbone.fpn import FPN, LastLevelMaxPool, LastLevelP6P
 from detectron2.layers import ShapeSpec
 
 
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super().__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_pool = torch.mean(x, dim=1, keepdim=True)
+        max_pool = torch.max(x, dim=1, keepdim=True)[0]
+        attention = torch.cat([avg_pool, max_pool], dim=1)
+        attention = self.conv(attention)
+        return self.sigmoid(attention)
+
 class Mlp(nn.Module):
     """ Multilayer perceptron."""
 
@@ -37,6 +50,34 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         return x
+
+
+class WindowAttentionWithSpatialAttention(WindowAttention):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.spatial_attention = SpatialAttention()
+
+    def forward(self, x, mask=None):
+        attn_output = super().forward(x, mask)
+        spatial_attention = self.spatial_attention(attn_output)
+        return attn_output * spatial_attention
+
+class SwinTransformerWithSpatialAttention(SwinTransformer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        for i in range(self.num_layers):
+            layer = self.layers[i]
+            if isinstance(layer.attn, WindowAttention):
+                layer.attn = WindowAttentionWithSpatialAttention(
+                    dim=layer.attn.dim,
+                    window_size=layer.attn.window_size,
+                    num_heads=layer.attn.num_heads,
+                    qkv_bias=layer.attn.qkv_bias,
+                    qk_scale=layer.attn.qk_scale,
+                    attn_drop=layer.attn.attn_drop,
+                    proj_drop=layer.attn.proj_drop
+                )
 
 
 def window_partition(x, window_size):
@@ -637,7 +678,7 @@ def build_swint_backbone(cfg, input_shape):
     """
     out_features = cfg.MODEL.SWINT.OUT_FEATURES
 
-    return SwinTransformer(
+    return SwinTransformerWithSpatialAttention(
         patch_size=4,
         in_chans=input_shape.channels,
         embed_dim=cfg.MODEL.SWINT.EMBED_DIM,
