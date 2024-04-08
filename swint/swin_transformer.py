@@ -659,16 +659,19 @@ class SwinTransformerWithSpatialAttention(SwinTransformer):
 
         for i in range(self.num_layers):
             layer = self.layers[i]
-            if isinstance(layer.attn, WindowAttention):
-                layer.attn = WindowAttentionWithSpatialAttention(
-                    dim=layer.attn.dim,
-                    window_size=layer.attn.window_size,
-                    num_heads=layer.attn.num_heads,
-                    qkv_bias=layer.attn.qkv_bias,
-                    qk_scale=layer.attn.qk_scale,
-                    attn_drop=layer.attn.attn_drop,
-                    proj_drop=layer.attn.proj_drop
-                )
+            if hasattr(layer, 'blocks'):
+                for j in range(len(layer.blocks)):
+                    if isinstance(layer.blocks[j].attn, WindowAttention):
+                        layer.blocks[j].attn = WindowAttentionWithSpatialAttention(
+                            dim=layer.blocks[j].attn.dim,
+                            window_size=layer.blocks[j].attn.window_size,
+                            num_heads=layer.blocks[j].attn.num_heads,
+                            qkv_bias=layer.blocks[j].attn.qkv_bias,
+                            qk_scale=layer.blocks[j].attn.qk_scale,
+                            attn_drop=layer.blocks[j].attn.attn_drop,
+                            proj_drop=layer.blocks[j].attn.proj_drop
+                        )
+
 
 
 
