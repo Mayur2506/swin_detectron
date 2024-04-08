@@ -52,32 +52,7 @@ class Mlp(nn.Module):
         return x
 
 
-class WindowAttentionWithSpatialAttention(WindowAttention):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.spatial_attention = SpatialAttention()
 
-    def forward(self, x, mask=None):
-        attn_output = super().forward(x, mask)
-        spatial_attention = self.spatial_attention(attn_output)
-        return attn_output * spatial_attention
-
-class SwinTransformerWithSpatialAttention(SwinTransformer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        for i in range(self.num_layers):
-            layer = self.layers[i]
-            if isinstance(layer.attn, WindowAttention):
-                layer.attn = WindowAttentionWithSpatialAttention(
-                    dim=layer.attn.dim,
-                    window_size=layer.attn.window_size,
-                    num_heads=layer.attn.num_heads,
-                    qkv_bias=layer.attn.qkv_bias,
-                    qk_scale=layer.attn.qk_scale,
-                    attn_drop=layer.attn.attn_drop,
-                    proj_drop=layer.attn.proj_drop
-                )
 
 
 def window_partition(x, window_size):
@@ -190,6 +165,15 @@ class WindowAttention(nn.Module):
         x = self.proj_drop(x)
         return x
 
+class WindowAttentionWithSpatialAttention(WindowAttention):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.spatial_attention = SpatialAttention()
+
+    def forward(self, x, mask=None):
+        attn_output = super().forward(x, mask)
+        spatial_attention = self.spatial_attention(attn_output)
+        return attn_output * spatial_attention
 
 class SwinTransformerBlock(nn.Module):
     """ Swin Transformer Block.
@@ -667,6 +651,26 @@ class SwinTransformer(Backbone):
             )
             for name in self.out_features
         }
+
+
+class SwinTransformerWithSpatialAttention(SwinTransformer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        for i in range(self.num_layers):
+            layer = self.layers[i]
+            if isinstance(layer.attn, WindowAttention):
+                layer.attn = WindowAttentionWithSpatialAttention(
+                    dim=layer.attn.dim,
+                    window_size=layer.attn.window_size,
+                    num_heads=layer.attn.num_heads,
+                    qkv_bias=layer.attn.qkv_bias,
+                    qk_scale=layer.attn.qk_scale,
+                    attn_drop=layer.attn.attn_drop,
+                    proj_drop=layer.attn.proj_drop
+                )
+
+
 
 @BACKBONE_REGISTRY.register()
 def build_swint_backbone(cfg, input_shape):
