@@ -150,16 +150,6 @@ class WindowAttention(nn.Module):
         return x
 
 class PerformerAttention(nn.Module):
-    """ Performer-based multi-head self attention module with relative position bias.
-    Args:
-        dim (int): Number of input channels.
-        num_heads (int): Number of attention heads.
-        qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
-        attn_drop (float, optional): Dropout ratio of attention weight. Default: 0.0
-        proj_drop (float, optional): Dropout ratio of output. Default: 0.0
-    """
-
     def __init__(self, dim, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
         self.dim = dim
@@ -167,53 +157,52 @@ class PerformerAttention(nn.Module):
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
 
+        # Linear transformations for queries, keys, and values
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
         # Initialize the orthogonal matrix parameter for Performer attention
         self.u = nn.Parameter(torch.randn(num_heads, head_dim))
-        self.v = nn.Parameter(torch.randn(num_heads, head_dim))  # Added initialization for parameter v
 
         # Softmax function
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, mask=None):
-        # Assuming x is of shape (batch_size, seq_len, dim)
-        # Assuming mask is of shape (batch_size, seq_len, seq_len)
-
         B, N, C = x.shape
 
         # Linear transformation of queries, keys, and values
-        q = torch.einsum("bnd,hd->bnh", x, self.qkv)
-        k = torch.einsum("bnd,hd->bnh", x, self.qkv)
-        v = torch.einsum("bnd,hd->bnh", x, self.qkv) 
-
-
-        # Compute attention scores
-        attn = torch.einsum("bnhi,bnjh->bnij", q, k) * self.scale
+        qkv = self.qkv(x)
+        q, k, v = qkv.chunk(3, dim=-1)
+        
+        q = q * self.scale
+        
+        # Perform batched matrix multiplication for attention scores
+        attn = torch.einsum("bnd,bmd->bnm", q, k)
 
         # Apply mask if provided
         if mask is not None:
             attn += mask.unsqueeze(1)  # Assuming mask has shape (B, 1, N, N)
 
         # Compute attention weights
-        attn = torch.softmax(attn, dim=-1)
+        attn = self.softmax(attn)
 
         # Apply dropout to attention weights
         attn = self.attn_drop(attn)
 
         # Weighted sum of values
-        output = torch.einsum("bnij,bnjh->bnih", attn, v)
+        output = torch.einsum("bnm,bmd->bnd", attn, v)
 
         # Project back to the original dimension
-        output = torch.einsum("bnih,hd->bnd", output, self.v)
+        output = self.proj(output)
 
         # Apply projection dropout
         output = self.proj_drop(output)
 
         return output
+
 
 
 class SwinTransformerBlock(nn.Module):
