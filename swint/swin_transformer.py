@@ -176,6 +176,7 @@ class PerformerAttention(nn.Module):
         self.random_matrix = nn.Parameter(torch.randn(dim, int(dim * self.kernel_ratio)), requires_grad=False)
         self.attn_drop = nn.Dropout(attn_drop)
 
+
     def forward(self, x):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -185,13 +186,13 @@ class PerformerAttention(nn.Module):
         k = k.transpose(-2, -1)
 
         # Performer attention
-        q_proj = torch.matmul(q, self.random_matrix)
-        k_proj = torch.matmul(k, self.random_matrix)
-        attn = torch.matmul(q_proj, k_proj.transpose(-2, -1))
+        q_proj = torch.matmul(q.reshape(B * self.num_heads, N, C // self.num_heads), self.random_matrix)
+        k_proj = torch.matmul(k.reshape(B * self.num_heads, C // self.num_heads, N), self.random_matrix.transpose(-2, -1))
+        attn = torch.matmul(q_proj, k_proj) / (C // self.num_heads) ** 0.5
         attn = self.softmax(attn)
         attn = self.attn_drop(attn)
 
-        x = torch.matmul(attn, v).transpose(1, 2).reshape(B, N, C)
+        x = torch.matmul(attn, v.reshape(B * self.num_heads, N, C // self.num_heads)).view(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
