@@ -242,7 +242,7 @@ class SwinTransformerBlock(nn.Module):
         self.H = None
         self.W = None
 
-    def forward(self, x):
+    def forward(self, x,mask_matrix):
         """ Forward function.
         Args:
             x: Input feature, tensor size (B, H*W, C).
