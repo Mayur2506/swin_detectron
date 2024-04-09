@@ -184,7 +184,7 @@ class PerformerAttention(nn.Module):
 
         # Apply mask if provided
         if mask is not None:
-            attn += mask.expand(-1, attn.size(1), attn.size(2), attn.size(3))
+            attn += mask.expand(-1, attn.size(1), -1, -1)
 
 
         # Compute attention weights
