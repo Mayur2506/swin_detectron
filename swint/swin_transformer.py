@@ -189,7 +189,9 @@ class PerformerAttention(nn.Module):
         attn = (q @ k.transpose(-2, -1))
 
         if mask is not None:
-            attn = attn + mask.unsqueeze(1)
+            nW = mask.shape[0]
+            attn = attn.view(B // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(-1, self.num_heads, N, N)
             attn = self.softmax(attn)
         else:
             attn = self.softmax(attn)
