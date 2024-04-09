@@ -179,45 +179,39 @@ class PerformerAttention(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, mask=None):
-        """ Forward function.
-        Args:
-            x: input features with shape of (B, N, C)
-            mask: (0/-inf) mask with shape of (B, N, N) or None
-        """
+        # Assuming x is of shape (batch_size, seq_len, dim)
+        # Assuming mask is of shape (batch_size, seq_len, seq_len)
+
         B, N, C = x.shape
 
-        # Linear transformation of input features to obtain queries, keys, and values
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]
-
-        # Scale queries and keys
-        q *= self.scale
-        k *= self.scale
-
-        # Perform linear transformation on q and k using u
-        q, k = self.linear_attention(q, k, self.u)
+        # Linear transformation of queries, keys, and values
+        q = torch.einsum("bnd,hd->bnh", x, self.u)
+        k = torch.einsum("bnd,hd->bnh", x, self.u)
+        v = torch.einsum("bnd,hd->bnh", x, self.v)
 
         # Compute attention scores
-        attn = torch.einsum('bhnd,bhkd->bhkn', q, k)
+        attn = torch.einsum("bihd,bjhd->bhij", q, k) * self.scale
 
-        # Apply softmax
-        attn = self.softmax(attn)
-        attn = self.attn_drop(attn)
+        # Apply mask if provided
+        if mask is not None:
+            attn += mask.unsqueeze(1)  # Assuming mask has shape (B, 1, N, N)
+
+        # Compute attention weights
+        attn = torch.softmax(attn, dim=-1)
+
+        # Apply dropout to attention weights
+        attn = self.dropout(attn)
 
         # Weighted sum of values
-        x = torch.einsum('bhkn,bhnd->bhkd', attn, v)
+        weighted_values = torch.einsum("bhij,bjhd->bihd", attn, v)
 
-        # Project back to the original space
-        x = self.proj(x)
-        x = self.proj_drop(x)
+        # Project back to the original dimension
+        output = torch.einsum("bihd,hd->bnd", weighted_values, self.v)
 
-        return x
+        # Apply projection dropout
+        output = self.proj_dropout(output)
 
-    def linear_attention(self, q, k, u):
-        # Perform linear transformation on q and k using u
-        q = torch.einsum("bhnd,hkd->bhnk", q, u)  # Changed 'hd' to 'hkd'
-        k = torch.einsum("bhkd,hkd->bhkd", k, u)  # Changed 'hd' to 'hkd'
-        return q, k
+        return output
 
 
 
