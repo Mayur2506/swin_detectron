@@ -185,6 +185,8 @@ class PerformerAttention(nn.Module):
         # Apply mask if provided
         if mask is not None:
             attn += mask.unsqueeze(1)  # Assuming mask has shape (B, 1, N, N)
+            attn += mask  # Broadcast mask along the head dimension
+
 
         # Compute attention weights
         attn = self.softmax(attn)
