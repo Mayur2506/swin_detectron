@@ -186,9 +186,10 @@ class PerformerAttention(nn.Module):
         B, N, C = x.shape
 
         # Linear transformation of queries, keys, and values
-        q = torch.einsum("bnd,hd->bnh", x, self.u)
-        k = torch.einsum("bnd,hd->bnh", x, self.v)
-        v = torch.einsum("bnd,hd->bnh", x, self.v)
+        q = torch.einsum("bnd,hd->bnh", x, self.qkv)
+        k = torch.einsum("bnd,hd->bnh", x, self.qkv)
+        v = torch.einsum("bnd,hd->bnh", x, self.qkv) 
+
 
         # Compute attention scores
         attn = torch.einsum("bnhi,bnjh->bnij", q, k) * self.scale
