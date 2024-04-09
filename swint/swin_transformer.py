@@ -186,11 +186,11 @@ class PerformerAttention(nn.Module):
 
         # Linear transformation of queries, keys, and values
         q = torch.einsum("bnd,hd->bnh", x, self.u)
-        k = torch.einsum("bnd,hd->bnh", x, self.u)
+        k = torch.einsum("bnd,hd->bnh", x, self.v)  # Changed self.u to self.v for keys
         v = torch.einsum("bnd,hd->bnh", x, self.v)
 
         # Compute attention scores
-        attn = torch.einsum("bnhi,bnhi->bnh", q, k) * self.scale
+        attn = torch.einsum("bnhi,bnjh->bnij", q, k) * self.scale  # Changed bnhi and bnjh for batched matrix multiplication
 
         # Apply mask if provided
         if mask is not None:
@@ -203,15 +203,16 @@ class PerformerAttention(nn.Module):
         attn = self.dropout(attn)
 
         # Weighted sum of values
-        output = torch.einsum("bnh,bnhi->bni", attn, v)
+        output = torch.einsum("bnij,bnjh->bnih", attn, v)  # Changed bnij and bnjh for batched matrix multiplication
 
         # Project back to the original dimension
-        output = torch.einsum("bni,hd->bnd", output, self.v)
+        output = torch.einsum("bnih,hd->bnd", output, self.v)
 
         # Apply projection dropout
         output = self.proj_dropout(output)
 
         return output
+
 
 
 
