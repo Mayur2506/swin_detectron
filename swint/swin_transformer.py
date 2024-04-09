@@ -186,11 +186,11 @@ class PerformerAttention(nn.Module):
         # Performer attention
         q_proj = torch.matmul(q.reshape(B * self.num_heads, N, C // self.num_heads), self.random_matrix)
         k_proj = torch.matmul(k.reshape(B * self.num_heads, C // self.num_heads, N), self.random_matrix.transpose(-2, -1))
-        attn = torch.matmul(q_proj, k_proj) / (C // self.num_heads) ** 0.5
+        attn = torch.bmm(q_proj, k_proj) / (C // self.num_heads) ** 0.5
         attn = self.softmax(attn)
         attn = self.attn_drop(attn)
 
-        x = torch.matmul(attn, v.reshape(B * self.num_heads, N, C // self.num_heads)).view(B, N, C)
+        x = torch.bmm(attn, v.reshape(B * self.num_heads, N, C // self.num_heads)).view(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
