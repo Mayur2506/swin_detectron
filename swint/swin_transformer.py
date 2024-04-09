@@ -190,7 +190,7 @@ class PerformerAttention(nn.Module):
         v = torch.einsum("bnd,hd->bnh", x, self.v)
 
         # Compute attention scores
-        attn = torch.einsum("bihd,bjhd->bhij", q, k) * self.scale
+        attn = torch.einsum("bnhi,bnhi->bnh", q, k) * self.scale
 
         # Apply mask if provided
         if mask is not None:
@@ -203,15 +203,16 @@ class PerformerAttention(nn.Module):
         attn = self.dropout(attn)
 
         # Weighted sum of values
-        weighted_values = torch.einsum("bhij,bjhd->bihd", attn, v)
+        output = torch.einsum("bnh,bnhi->bni", attn, v)
 
         # Project back to the original dimension
-        output = torch.einsum("bihd,hd->bnd", weighted_values, self.v)
+        output = torch.einsum("bni,hd->bnd", output, self.v)
 
         # Apply projection dropout
         output = self.proj_dropout(output)
 
         return output
+
 
 
 
