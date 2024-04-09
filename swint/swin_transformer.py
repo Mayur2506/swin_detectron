@@ -215,9 +215,10 @@ class PerformerAttention(nn.Module):
 
     def linear_attention(self, q, k, u):
         # Perform linear transformation on q and k using u
-        q = torch.einsum("bhnd,hd->bhnd", q, u)
-        k = torch.einsum("bhkd,hd->bhkd", k, u)
+        q = torch.einsum("bhnd,hkd->bhnk", q, u)  # Changed 'hd' to 'hkd'
+        k = torch.einsum("bhkd,hkd->bhkd", k, u)  # Changed 'hd' to 'hkd'
         return q, k
+
 
 
 
