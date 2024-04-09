@@ -18,19 +18,6 @@ from detectron2.modeling.backbone.fpn import FPN, LastLevelMaxPool, LastLevelP6P
 from detectron2.layers import ShapeSpec
 
 
-class SpatialAttention(nn.Module):
-    def __init__(self, kernel_size=7):
-        super().__init__()
-        self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=kernel_size // 2)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        avg_pool = torch.mean(x, dim=1, keepdim=True)
-        max_pool = torch.max(x, dim=1, keepdim=True)[0]
-        attention = torch.cat([avg_pool, max_pool], dim=1)
-        attention = self.conv(attention)
-        return self.sigmoid(attention)
-
 class Mlp(nn.Module):
     """ Multilayer perceptron."""
 
@@ -50,9 +37,6 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         return x
-
-
-
 
 
 def window_partition(x, window_size):
@@ -165,15 +149,77 @@ class WindowAttention(nn.Module):
         x = self.proj_drop(x)
         return x
 
-class WindowAttentionWithSpatialAttention(WindowAttention):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.spatial_attention = SpatialAttention()
+class PerformerAttention(nn.Module):
+    """ Performer-based multi-head self attention module with relative position bias.
+    Args:
+        dim (int): Number of input channels.
+        num_heads (int): Number of attention heads.
+        qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
+        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
+        attn_drop (float, optional): Dropout ratio of attention weight. Default: 0.0
+        proj_drop (float, optional): Dropout ratio of output. Default: 0.0
+    """
+
+    def __init__(self, dim, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = qk_scale or head_dim ** -0.5
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+        # Initialize the orthogonal matrix parameter for Performer attention
+        self.u = nn.Parameter(torch.randn(num_heads, head_dim))
+
+        # Softmax function
+        self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, mask=None):
-        attn_output = super().forward(x, mask)
-        spatial_attention = self.spatial_attention(attn_output)
-        return attn_output * spatial_attention
+        """ Forward function.
+        Args:
+            x: input features with shape of (B, N, C)
+            mask: (0/-inf) mask with shape of (B, N, N) or None
+        """
+        B, N, C = x.shape
+
+        # Linear transformation of input features to obtain queries, keys, and values
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        # Scale queries and keys
+        q *= self.scale
+        k *= self.scale
+
+        # Perform linear transformation on q and k using u
+        q, k = self.linear_attention(q, k, self.u)
+
+        # Compute attention scores
+        attn = torch.einsum('bhnd,bhkd->bhkn', q, k)
+
+        # Apply softmax
+        attn = self.softmax(attn)
+        attn = self.attn_drop(attn)
+
+        # Weighted sum of values
+        x = torch.einsum('bhkn,bhnd->bhkd', attn, v)
+
+        # Project back to the original space
+        x = self.proj(x)
+        x = self.proj_drop(x)
+
+        return x
+
+    def linear_attention(self, q, k, u):
+        # Perform linear transformation on q and k using u
+        q = torch.einsum("bhnd,hd->bhnd", q, u)
+        k = torch.einsum("bhkd,hd->bhkd", k, u)
+        return q, k
+
+
 
 class SwinTransformerBlock(nn.Module):
     """ Swin Transformer Block.
@@ -204,7 +250,7 @@ class SwinTransformerBlock(nn.Module):
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
 
         self.norm1 = norm_layer(dim)
-        self.attn = WindowAttention(
+        self.attn = PerformerAttention(
             dim, window_size=to_2tuple(self.window_size), num_heads=num_heads,
             qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
 
@@ -652,29 +698,6 @@ class SwinTransformer(Backbone):
             for name in self.out_features
         }
 
-
-class SwinTransformerWithSpatialAttention(SwinTransformer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        for i in range(self.num_layers):
-            layer = self.layers[i]
-            if hasattr(layer, 'blocks'):
-                for j in range(len(layer.blocks)):
-                    if isinstance(layer.blocks[j].attn, WindowAttention):
-                        layer.blocks[j].attn = WindowAttentionWithSpatialAttention(
-                            dim=layer.blocks[j].attn.dim,
-                            window_size=layer.blocks[j].attn.window_size,
-                            num_heads=layer.blocks[j].attn.num_heads,
-                            qkv_bias=layer.blocks[j].attn.qkv_bias,
-                            qk_scale=layer.blocks[j].attn.qk_scale,
-                            attn_drop=layer.blocks[j].attn.attn_drop,
-                            proj_drop=layer.blocks[j].attn.proj_drop
-                        )
-
-
-
-
 @BACKBONE_REGISTRY.register()
 def build_swint_backbone(cfg, input_shape):
     """
@@ -685,7 +708,7 @@ def build_swint_backbone(cfg, input_shape):
     """
     out_features = cfg.MODEL.SWINT.OUT_FEATURES
 
-    return SwinTransformerWithSpatialAttention(
+    return SwinTransformer(
         patch_size=4,
         in_chans=input_shape.channels,
         embed_dim=cfg.MODEL.SWINT.EMBED_DIM,
