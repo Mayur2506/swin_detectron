@@ -174,6 +174,7 @@ class PerformerAttention(nn.Module):
 
         # Initialize the orthogonal matrix parameter for Performer attention
         self.u = nn.Parameter(torch.randn(num_heads, head_dim))
+        self.v = nn.Parameter(torch.randn(num_heads, head_dim))  # Added initialization for parameter v
 
         # Softmax function
         self.softmax = nn.Softmax(dim=-1)
@@ -186,11 +187,11 @@ class PerformerAttention(nn.Module):
 
         # Linear transformation of queries, keys, and values
         q = torch.einsum("bnd,hd->bnh", x, self.u)
-        k = torch.einsum("bnd,hd->bnh", x, self.v)  # Changed self.u to self.v for keys
+        k = torch.einsum("bnd,hd->bnh", x, self.v)
         v = torch.einsum("bnd,hd->bnh", x, self.v)
 
         # Compute attention scores
-        attn = torch.einsum("bnhi,bnjh->bnij", q, k) * self.scale  # Changed bnhi and bnjh for batched matrix multiplication
+        attn = torch.einsum("bnhi,bnjh->bnij", q, k) * self.scale
 
         # Apply mask if provided
         if mask is not None:
@@ -200,22 +201,18 @@ class PerformerAttention(nn.Module):
         attn = torch.softmax(attn, dim=-1)
 
         # Apply dropout to attention weights
-        attn = self.dropout(attn)
+        attn = self.attn_drop(attn)
 
         # Weighted sum of values
-        output = torch.einsum("bnij,bnjh->bnih", attn, v)  # Changed bnij and bnjh for batched matrix multiplication
+        output = torch.einsum("bnij,bnjh->bnih", attn, v)
 
         # Project back to the original dimension
         output = torch.einsum("bnih,hd->bnd", output, self.v)
 
         # Apply projection dropout
-        output = self.proj_dropout(output)
+        output = self.proj_drop(output)
 
         return output
-
-
-
-
 
 
 class SwinTransformerBlock(nn.Module):
@@ -244,18 +241,16 @@ class SwinTransformerBlock(nn.Module):
         self.window_size = window_size
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
-        assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
+        assert 0 <= self.shift_size < self.window_size, "shift_size must be in the range [0, window_size)"
 
         self.norm1 = norm_layer(dim)
         self.attn = PerformerAttention(
             dim, num_heads=num_heads,
             qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
-
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-
         self.H = None
         self.W = None
 
@@ -268,20 +263,20 @@ class SwinTransformerBlock(nn.Module):
         """
         B, L, C = x.shape
         H, W = self.H, self.W
-        assert L == H * W, "input feature has wrong size"
+        assert L == H * W, "Input feature has wrong size."
 
         shortcut = x
         x = self.norm1(x)
         x = x.view(B, H, W, C)
 
-        # pad feature maps to multiples of window size
+        # Pad feature maps to multiples of window size
         pad_l = pad_t = 0
         pad_r = (self.window_size - W % self.window_size) % self.window_size
         pad_b = (self.window_size - H % self.window_size) % self.window_size
         x = F.pad(x, (0, 0, pad_l, pad_r, pad_t, pad_b))
         _, Hp, Wp, _ = x.shape
 
-        # cyclic shift
+        # Cyclic shift
         if self.shift_size > 0:
             shifted_x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
             attn_mask = mask_matrix
@@ -289,29 +284,29 @@ class SwinTransformerBlock(nn.Module):
             shifted_x = x
             attn_mask = None
 
-        # partition windows
-        x_windows = window_partition(shifted_x, self.window_size)  # nW*B, window_size, window_size, C
-        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)  # nW*B, window_size*window_size, C
+        # Partition windows
+        x_windows = shifted_x.unfold(1, self.window_size, self.window_size).unfold(2, self.window_size, self.window_size)
+        x_windows = x_windows.contiguous().view(-1, self.window_size * self.window_size, C)
 
-        # W-MSA/SW-MSA
-        attn_windows = self.attn(x_windows, mask=attn_mask)  # nW*B, window_size*window_size, C
+        # Attention operation
+        attn_windows = self.attn(x_windows, mask=attn_mask)
 
-        # merge windows
-        attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
-        shifted_x = window_reverse(attn_windows, self.window_size, Hp, Wp)  # B H' W' C
+        # Merge windows
+        attn_windows = attn_windows.view(-1, Hp // self.window_size, Wp // self.window_size, C)
+        shifted_x = attn_windows.permute(0, 3, 1, 2).reshape(B, C, Hp, Wp)
 
-        # reverse cyclic shift
+        # Reverse cyclic shift
         if self.shift_size > 0:
-            x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+            x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(2, 3))
         else:
             x = shifted_x
 
+        # Remove padding
         if pad_r > 0 or pad_b > 0:
-            x = x[:, :H, :W, :].contiguous()
+            x = x[:, :, :H, :W].contiguous()
 
+        # Reshape and apply FFN
         x = x.view(B, H * W, C)
-
-        # FFN
         x = shortcut + self.drop_path(x)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
 
