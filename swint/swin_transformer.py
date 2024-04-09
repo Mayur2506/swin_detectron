@@ -191,15 +191,9 @@ class PerformerAttention(nn.Module):
         attn = self.attn_drop(attn)
 
         x = torch.einsum('bhij,bhjd->bhid', attn, v).reshape(B, N, C)
-        x = self.proj(x.reshape(B * N, C))  # Reshape the input to the linear layer
+        x = self.proj(x.reshape(B * N, C))
         x = self.proj_drop(x)
-        return x.reshape(B, N, C)  # Reshape the output back to the original shape
-
-    def softmax(self, attn, epsilon=1e-6):
-        attn_max, _ = torch.max(attn, dim=-1, keepdim=True)
-        attn_exp = torch.exp(attn - attn_max)
-        attn_exp_sum = torch.sum(attn_exp, dim=-1, keepdim=True)
-        return attn_exp / (attn_exp_sum + epsilon)
+        return x.reshape(B, N, C)
 
 class SwinTransformerBlock(nn.Module):
     """ Swin Transformer Block with Performer Attention.
