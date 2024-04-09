@@ -149,7 +149,6 @@ class WindowAttention(nn.Module):
         x = self.proj_drop(x)
         return x
 
-
 class PerformerAttention(nn.Module):
     """Performer attention module.
     Args:
@@ -175,7 +174,6 @@ class PerformerAttention(nn.Module):
         self.kernel_ratio = kernel_ratio
         self.random_matrix = nn.Parameter(torch.randn(dim, int(dim * self.kernel_ratio)), requires_grad=False)
         self.attn_drop = nn.Dropout(attn_drop)
-
 
     def forward(self, x):
         B, N, C = x.shape
