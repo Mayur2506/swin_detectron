@@ -184,7 +184,10 @@ class PerformerAttention(nn.Module):
 
         # Apply mask if provided
         if mask is not None:
-            attn += mask.expand(-1, attn.size(1), -1, -1)
+                # Assuming mask has shape (B, N, N)
+            mask = mask.unsqueeze(1)  # Add the extra dimension
+            mask = mask.expand(-1, attn.size(1), -1, -1)  # Expand to match attn's shape
+            attn += mask  # Add the mask to attn
 
 
         # Compute attention weights
