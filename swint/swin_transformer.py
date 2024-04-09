@@ -149,10 +149,11 @@ class WindowAttention(nn.Module):
         x = self.proj_drop(x)
         return x
 
-class PerformerAttention(nn.Module):
-    """ Performer based multi-head self attention (P-MSA) module.
+class Attention(nn.Module):
+    r""" Multi-head self attention module with dynamic position bias.
     Args:
         dim (int): Number of input channels.
+        group_size (tuple[int]): The height and width of the group.
         num_heads (int): Number of attention heads.
         qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
         qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
@@ -160,13 +161,39 @@ class PerformerAttention(nn.Module):
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
 
-    def __init__(self, dim, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, group_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.,
+                 position_bias=True):
 
         super().__init__()
         self.dim = dim
+        self.group_size = group_size  # Wh, Ww
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
+        self.position_bias = position_bias
+
+        if position_bias:
+            self.pos = DynamicPosBias(self.dim // 4, self.num_heads, residual=False)
+
+            # generate mother-set
+            position_bias_h = torch.arange(1 - self.group_size[0], self.group_size[0])
+            position_bias_w = torch.arange(1 - self.group_size[1], self.group_size[1])
+            biases = torch.stack(torch.meshgrid([position_bias_h, position_bias_w]))  # 2, 2Wh-1, 2W2-1
+            biases = biases.flatten(1).transpose(0, 1).float()
+            self.register_buffer("biases", biases)
+
+            # get pair-wise relative position index for each token inside the group
+            coords_h = torch.arange(self.group_size[0])
+            coords_w = torch.arange(self.group_size[1])
+            coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
+            coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
+            relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
+            relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
+            relative_coords[:, :, 0] += self.group_size[0] - 1  # shift to start from 0
+            relative_coords[:, :, 1] += self.group_size[1] - 1
+            relative_coords[:, :, 0] *= 2 * self.group_size[1] - 1
+            relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
+            self.register_buffer("relative_position_index", relative_position_index)
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
@@ -176,21 +203,29 @@ class PerformerAttention(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, mask=None):
-        """ Forward function.
-        Args:
-            x: input features with shape of (B, N, C)
-            mask: (0/-inf) mask with shape of (B, N, N) or None
         """
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        Args:
+            x: input features with shape of (num_groups*B, N, C)
+            mask: (0/-inf) mask with shape of (num_groups, Wh*Ww, Wh*Ww) or None
+        """
+        B_, N, C = x.shape
+        qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
 
+        if self.position_bias:
+            pos = self.pos(self.biases)  # 2Wh-1 * 2Ww-1, heads
+            # select position bias
+            relative_position_bias = pos[self.relative_position_index.view(-1)].view(
+                self.group_size[0] * self.group_size[1], self.group_size[0] * self.group_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+            relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+            attn = attn + relative_position_bias.unsqueeze(0)
+
         if mask is not None:
             nW = mask.shape[0]
-            attn = attn.view(B // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(-1, self.num_heads, N, N)
             attn = self.softmax(attn)
         else:
@@ -198,10 +233,28 @@ class PerformerAttention(nn.Module):
 
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
+
+    def extra_repr(self) -> str:
+        return f'dim={self.dim}, group_size={self.group_size}, num_heads={self.num_heads}'
+
+    def flops(self, N):
+        # calculate flops for 1 group with token length of N
+        flops = 0
+        # qkv = self.qkv(x)
+        flops += N * self.dim * 3 * self.dim
+        # attn = (q @ k.transpose(-2, -1))
+        flops += self.num_heads * N * (self.dim // self.num_heads) * N
+        #  x = (attn @ v)
+        flops += self.num_heads * N * N * (self.dim // self.num_heads)
+        # x = self.proj(x)
+        flops += N * self.dim * self.dim
+        if self.position_bias:
+            flops += self.pos.flops(N)
+        return flops
 
 
 class SwinTransformerBlock(nn.Module):
@@ -233,9 +286,11 @@ class SwinTransformerBlock(nn.Module):
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
 
         self.norm1 = norm_layer(dim)
-        self.attn = PerformerAttention(
-            dim, num_heads=num_heads,
-            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = Attention(
+            dim, group_size=to_2tuple(self.group_size), num_heads=num_heads,
+            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
+            position_bias=True)
+
 
 
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
@@ -243,59 +298,33 @@ class SwinTransformerBlock(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-        self.H = None
-        self.W = None
 
-    def forward(self, x, mask_matrix):
-        """ Forward function.
-        Args:
-            x: Input feature, tensor size (B, H*W, C).
-            H, W: Spatial resolution of the input feature.
-            mask_matrix: Attention mask for cyclic shift.
-        """
+    def forward(self, x,mask_matrix):
+        H, W = self.input_resolution
         B, L, C = x.shape
-        H, W = self.H, self.W
-        assert L == H * W, "input feature has wrong size"
+        assert L == H * W, "input feature has wrong size %d, %d, %d" % (L, H, W)
 
         shortcut = x
         x = self.norm1(x)
         x = x.view(B, H, W, C)
 
-        # pad feature maps to multiples of window size
-        pad_l = pad_t = 0
-        pad_r = (self.window_size - W % self.window_size) % self.window_size
-        pad_b = (self.window_size - H % self.window_size) % self.window_size
-        x = F.pad(x, (0, 0, pad_l, pad_r, pad_t, pad_b))
-        _, Hp, Wp, _ = x.shape
+        # group embeddings
+        G = self.group_size
+        if self.lsda_flag == 0:  # 0 for SDA
+            x = x.reshape(B, H // G, G, W // G, G, C).permute(0, 1, 3, 2, 4, 5)
+        else:  # 1 for LDA
+            x = x.reshape(B, G, H // G, G, W // G, C).permute(0, 2, 4, 1, 3, 5)
+        x = x.reshape(B * H * W // G ** 2, G ** 2, C)
 
-        # cyclic shift
-        if self.shift_size > 0:
-            shifted_x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-            attn_mask = mask_matrix
+        # multi-head self-attention
+        x = self.attn(x, mask=self.attn_mask)  # nW*B, G*G, C
+
+        # ungroup embeddings
+        x = x.reshape(B, H // G, W // G, G, G, C)
+        if self.lsda_flag == 0:
+            x = x.permute(0, 1, 3, 2, 4, 5).reshape(B, H, W, C)
         else:
-            shifted_x = x
-            attn_mask = None
-
-        # partition windows
-        x_windows = window_partition(shifted_x, self.window_size)  # nW*B, window_size, window_size, C
-        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)  # nW*B, window_size*window_size, C
-
-        # W-MSA/SW-MSA
-        attn_windows = self.attn(x_windows, mask=attn_mask)  # nW*B, window_size*window_size, C
-
-        # merge windows
-        attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
-        shifted_x = window_reverse(attn_windows, self.window_size, Hp, Wp)  # B H' W' C
-
-        # reverse cyclic shift
-        if self.shift_size > 0:
-            x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
-        else:
-            x = shifted_x
-
-        if pad_r > 0 or pad_b > 0:
-            x = x[:, :H, :W, :].contiguous()
-
+            x = x.permute(0, 3, 1, 4, 2, 5).reshape(B, H, W, C)
         x = x.view(B, H * W, C)
 
         # FFN
@@ -303,6 +332,24 @@ class SwinTransformerBlock(nn.Module):
         x = x + self.drop_path(self.mlp(self.norm2(x)))
 
         return x
+
+    def extra_repr(self) -> str:
+        return f"dim={self.dim}, input_resolution={self.input_resolution}, num_heads={self.num_heads}, " \
+               f"group_size={self.group_size}, lsda_flag={self.lsda_flag}, mlp_ratio={self.mlp_ratio}"
+
+    def flops(self):
+        flops = 0
+        H, W = self.input_resolution
+        # norm1
+        flops += self.dim * H * W
+        # LSDA
+        nW = H * W / self.group_size / self.group_size
+        flops += nW * self.attn.flops(self.group_size * self.group_size)
+        # mlp
+        flops += 2 * H * W * self.dim * self.dim * self.mlp_ratio
+        # norm2
+        flops += self.dim * H * W
+        return flops
 
 
 
