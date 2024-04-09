@@ -177,20 +177,20 @@ class PerformerAttention(nn.Module):
 
     def forward(self, x):
         B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 1, 3, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
         q = q * self.scale
         k = k.transpose(-2, -1)
 
         # Performer attention
-        q_proj = torch.matmul(q.reshape(B * self.num_heads, N, C // self.num_heads), self.random_matrix)
-        k_proj = torch.matmul(k.reshape(B * self.num_heads, C // self.num_heads, N), self.random_matrix.transpose(-2, -1))
-        attn = torch.bmm(q_proj, k_proj) / (C // self.num_heads) ** 0.5
+        q_proj = torch.einsum('bhid,id->bhid', q, self.random_matrix)
+        k_proj = torch.einsum('bhid,id->bhid', k, self.random_matrix.T)
+        attn = torch.einsum('bhid,bhjd->bhij', q_proj, k_proj) / (C // self.num_heads) ** 0.5
         attn = self.softmax(attn)
         attn = self.attn_drop(attn)
 
-        x = torch.bmm(attn, v.reshape(B * self.num_heads, N, C // self.num_heads)).view(B, N, C)
+        x = torch.einsum('bhij,bhjd->bhid', attn, v).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
