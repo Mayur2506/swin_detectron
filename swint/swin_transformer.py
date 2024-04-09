@@ -150,17 +150,18 @@ class WindowAttention(nn.Module):
         return x
 
 class PerformerAttention(nn.Module):
-    """Performer attention module.
+    """ Performer based multi-head self attention (P-MSA) module.
     Args:
         dim (int): Number of input channels.
         num_heads (int): Number of attention heads.
-        kernel_ratio (float): Kernel ratio for Performer attention.
-        qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
+        qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
         qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
         attn_drop (float, optional): Dropout ratio of attention weight. Default: 0.0
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
-    def __init__(self, dim, num_heads, kernel_ratio, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+
+    def __init__(self, dim, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
@@ -168,63 +169,51 @@ class PerformerAttention(nn.Module):
         self.scale = qk_scale or head_dim ** -0.5
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-        self.kernel_ratio = kernel_ratio
-        self.random_matrix = nn.Parameter(torch.randn(dim, int(dim * self.kernel_ratio)), requires_grad=False)
-        self.attn_drop = nn.Dropout(attn_drop)
+        self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
+        """ Forward function.
+        Args:
+            x: input features with shape of (B, N, C)
+            mask: (0/-inf) mask with shape of (B, N, N) or None
+        """
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]
+        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
         q = q * self.scale
-        k = k.transpose(-2, -1)
+        attn = (q @ k.transpose(-2, -1))
 
-        # Performer attention
-        q_proj = torch.einsum('bhid,id->bhid', q, self.random_matrix)
-        k_proj = torch.einsum('bhid,id->bhid', k, self.random_matrix.T)
-        attn = torch.einsum('bhid,bhjd->bhij', q_proj, k_proj) / (C // self.num_heads) ** 0.5
-        attn = self.softmax(attn)
+        if mask is not None:
+            attn = attn + mask.unsqueeze(1)
+            attn = self.softmax(attn)
+        else:
+            attn = self.softmax(attn)
+
         attn = self.attn_drop(attn)
 
-        x = torch.einsum('bhij,bhjd->bhid', attn, v).reshape(B, N, C)
-        x = self.proj(x.reshape(B * N, C))
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
         x = self.proj_drop(x)
-        return x.reshape(B, N, C)
+        return x
+
 
 class SwinTransformerBlock(nn.Module):
-    """ Swin Transformer Block with Performer Attention.
-    Args:
-        dim (int): Number of input channels.
-        num_heads (int): Number of attention heads.
-        window_size (int): Window size.
-        shift_size (int): Shift size for SW-MSA.
-        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
-        qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
-        drop (float, optional): Dropout rate. Default: 0.0
-        attn_drop (float, optional): Attention dropout rate. Default: 0.0
-        drop_path (float, optional): Stochastic depth rate. Default: 0.0
-        act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
-        norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
-    """
     def __init__(self, dim, num_heads, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, kernel_ratio=0.5):
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
-        self.window_size = window_size
-        self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
-        assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
 
         self.norm1 = norm_layer(dim)
         self.attn = PerformerAttention(
-            dim, num_heads=num_heads, kernel_ratio=kernel_ratio,
+            dim, num_heads=num_heads,
             qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
 
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
@@ -232,32 +221,21 @@ class SwinTransformerBlock(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-        self.H = None
-        self.W = None
-
-    def forward(self, x,mask_matrix):
-        """ Forward function.
-        Args:
-            x: Input feature, tensor size (B, H*W, C).
-        """
+    def forward(self, x, mask=None):
         B, L, C = x.shape
-        H, W = self.H, self.W
-        assert L == H * W, "input feature has wrong size"
 
         shortcut = x
         x = self.norm1(x)
-        x = x.view(B, H, W, C)
 
-        # Performer attention
-        x = self.attn(x.flatten(2).transpose(1, 2)).transpose(1, 2).view(B, H, W, C)
-
-        x = x.view(B, H * W, C)
+        # P-MSA
+        x = self.attn(x, mask=mask)  # B, L, C
 
         # FFN
         x = shortcut + self.drop_path(x)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
-
         return x
+
+
 
 
 class PatchMerging(nn.Module):
