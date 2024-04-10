@@ -354,12 +354,10 @@ class SwinTransformerBlock(nn.Module):
             attn_mask = None
 
         predicted_window_size = self.window_size_predictor(x).squeeze()
-
-        # Adjust the window size
+        predicted_window_size = torch.clamp(predicted_window_size, min=1, max=self.window_size)
         window_size = predicted_window_size * self.window_size
+        window_size = window_size.long()
 
-        # Clamp the window size to ensure it's within bounds
-        window_size = torch.clamp(window_size, min=1, max=self.window_size).long()
 
 
 
