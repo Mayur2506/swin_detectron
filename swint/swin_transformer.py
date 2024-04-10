@@ -353,7 +353,8 @@ class SwinTransformerBlock(nn.Module):
             shifted_x = x
             attn_mask = None
 
-        window_size = self.window_size_predictor(x.view(B, C, int(Hp ** 0.5), int(Wp ** 0.5))).squeeze() * self.window_size
+        window_size = self.window_size_predictor(x).squeeze() * self.window_size
+
         window_size = torch.clamp(window_size, min=1, max=self.window_size).long()
 
 
