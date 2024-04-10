@@ -276,6 +276,24 @@ class WindowAttention(nn.Module):
         x = self.proj_drop(x)
         return x
 
+def get_window_size(x, min_size=7, max_size=21, step=2):
+    """
+    Determine the window size based on the input features.
+    Args:
+        x: Input feature, tensor size (B, H*W, C).
+        min_size (int): Minimum window size.
+        max_size (int): Maximum window size.
+        step (int): Step size for window size.
+    Returns:
+        window_size (int): Dynamic window size.
+    """
+    B, L, C = x.shape
+    H = int(np.sqrt(L))
+    W = H
+    window_size = min(min(H, W) // 2, max_size)
+    window_size = max(window_size, min_size)
+    window_size = window_size - (window_size - min_size) % step
+    return window_size
 
 class SwinTransformerBlock(nn.Module):
     """ Swin Transformer Block.
@@ -314,12 +332,6 @@ class SwinTransformerBlock(nn.Module):
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-        self.window_size_predictor = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(dim, 1),
-            nn.Sigmoid(),
-        )
         self.H = None
         self.W = None
 
@@ -353,14 +365,8 @@ class SwinTransformerBlock(nn.Module):
             shifted_x = x
             attn_mask = None
 
-        predicted_window_size = self.window_size_predictor(x).squeeze()
-        predicted_window_size = torch.clamp(predicted_window_size, min=1, max=self.window_size)
-        window_size = predicted_window_size * self.window_size
-        window_size = window_size.long()
 
-
-
-
+        self.window_size = get_window_size(x)
 
         # partition windows
         x_windows = window_partition(shifted_x, self.window_size)  # nW*B, window_size, window_size, C
