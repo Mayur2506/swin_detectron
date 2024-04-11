@@ -346,6 +346,7 @@ class SwinTransformerBlock(nn.Module):
         H, W = self.H, self.W
         assert L == H * W, "input feature has wrong size"
 
+        self.window_size = get_window_size(x)
         shortcut = x
         x = self.norm1(x)
         x = x.view(B, H, W, C)
@@ -366,7 +367,7 @@ class SwinTransformerBlock(nn.Module):
             attn_mask = None
 
 
-        self.window_size = get_window_size(x)
+        
 
         # partition windows
         x_windows = window_partition(shifted_x, self.window_size)  # nW*B, window_size, window_size, C
