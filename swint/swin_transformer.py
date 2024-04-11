@@ -31,7 +31,6 @@ class SwishGLU(nn.Module):
         swish = x1 * torch.sigmoid(x1)
         glu = (x1 + x2) / 2
         return swish * glu
-
 class Mlp(nn.Module):
     """ Multilayer perceptron."""
 
