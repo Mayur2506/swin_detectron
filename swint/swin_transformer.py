@@ -16,7 +16,21 @@ from detectron2.modeling.backbone import Backbone
 from detectron2.modeling.backbone.build import BACKBONE_REGISTRY
 from detectron2.modeling.backbone.fpn import FPN, LastLevelMaxPool, LastLevelP6P7
 from detectron2.layers import ShapeSpec
+from torch import Tensor
 
+
+class SwishGLU(nn.Module):
+    r"""Applies the Swish-Gated Linear Unit (SwishGLU) function:
+    .. math::
+        \text{SwishGLU}(x) = \text{Swish}(x) * \text{GLU}(x)
+    where :math:`\text{Swish}(x) = x * \sigmoid(x)` and
+    :math:`\text{GLU}(x) = \frac{x_1 + x_2}{2}` where :math:`x = [x_1, x_2]`.
+    """
+    def forward(self, input: Tensor) -> Tensor:
+        x1, x2 = torch.chunk(input, 2, dim=-1)
+        swish = x1 * torch.sigmoid(x1)
+        glu = (x1 + x2) / 2
+        return swish * glu
 
 class Mlp(nn.Module):
     """ Multilayer perceptron."""
@@ -68,133 +82,6 @@ def window_reverse(windows, window_size, H, W):
     x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
     return x
 
-
-# class WindowAttention(nn.Module):
-#     """ Window based multi-head self attention (W-MSA) module with relative position bias.
-#     It supports both of shifted and non-shifted window.
-#     Args:
-#         dim (int): Number of input channels.
-#         window_size (tuple[int]): The height and width of the window.
-#         num_heads (int): Number of attention heads.
-#         qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
-#         qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
-#         attn_drop (float, optional): Dropout ratio of attention weight. Default: 0.0
-#         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
-#     """
-
-#     def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
-
-#         super().__init__()
-#         self.dim = dim
-#         self.window_size = window_size  # Wh, Ww
-#         self.num_heads = num_heads
-#         head_dim = dim // num_heads
-#         self.scale = qk_scale or head_dim ** -0.5
-
-#         # define a parameter table of relative position bias
-#         self.relative_position_bias_table = nn.Parameter(
-#             torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
-
-#         # get pair-wise relative position index for each token inside the window
-#         coords_h = torch.arange(self.window_size[0])
-#         coords_w = torch.arange(self.window_size[1])
-#         coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
-#         coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
-#         relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
-#         relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
-#         relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
-#         relative_coords[:, :, 1] += self.window_size[1] - 1
-#         relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
-#         relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
-#         self.register_buffer("relative_position_index", relative_position_index)
-
-#         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-#         self.attn_drop = nn.Dropout(attn_drop)
-#         self.proj = nn.Linear(dim, dim)
-#         self.proj_drop = nn.Dropout(proj_drop)
-
-#         trunc_normal_(self.relative_position_bias_table, std=.02)
-#         self.softmax = nn.Softmax(dim=-1)
-
-#     def forward(self, x, mask=None):
-#         """ Forward function.
-#         Args:
-#             x: input features with shape of (num_windows*B, N, C)
-#             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
-#         """
-#         B_, N, C = x.shape
-#         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-#         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
-
-#         q = q * self.scale
-#         attn = (q @ k.transpose(-2, -1))
-
-#         relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-#             self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-#         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
-#         attn = attn + relative_position_bias.unsqueeze(0)
-
-#         if mask is not None:
-#             nW = mask.shape[0]
-#             attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
-#             attn = attn.view(-1, self.num_heads, N, N)
-#             attn = self.softmax(attn)
-#         else:
-#             attn = self.softmax(attn)
-
-#         attn = self.attn_drop(attn)
-
-#         x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
-#         x = self.proj(x)
-#         x = self.proj_drop(x)
-#         return x
-
-
-class ChannelAttention(nn.Module):
-    def __init__(self, in_planes, ratio=16):
-        super(ChannelAttention, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.max_pool = nn.AdaptiveMaxPool2d(1)
-
-        self.fc1 = nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False)
-        self.relu1 = nn.ReLU()
-        self.fc2 = nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
-
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        avg_out = self.fc2(self.relu1(self.fc1(self.avg_pool(x))))
-        max_out = self.fc2(self.relu1(self.fc1(self.max_pool(x))))
-        out = avg_out + max_out
-        return self.sigmoid(out)
-
-class SpatialAttention(nn.Module):
-    def __init__(self, kernel_size=7):
-        super(SpatialAttention, self).__init__()
-
-        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
-        padding = 3 if kernel_size == 7 else 1
-
-        self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        avg_out = torch.mean(x, dim=1, keepdim=True)
-        max_out, _ = torch.max(x, dim=1, keepdim=True)
-        x = torch.cat([avg_out, max_out], dim=1)
-        x = self.conv1(x)
-        return self.sigmoid(x)
-
-class CBAM(nn.Module):
-    def __init__(self, in_planes, ratio=16, kernel_size=7):
-        super(CBAM, self).__init__()
-        self.ca = ChannelAttention(in_planes, ratio)
-        self.sa = SpatialAttention(kernel_size)
-
-    def forward(self, x):
-        x = self.ca(x) * x
-        x = self.sa(x) * x
-        return x
 
 class WindowAttention(nn.Module):
     """ Window based multi-head self attention (W-MSA) module with relative position bias.
@@ -276,24 +163,6 @@ class WindowAttention(nn.Module):
         x = self.proj_drop(x)
         return x
 
-def get_window_size(x, min_size=7, max_size=21, step=2):
-    """
-    Determine the window size based on the input features.
-    Args:
-        x: Input feature, tensor size (B, H*W, C).
-        min_size (int): Minimum window size.
-        max_size (int): Maximum window size.
-        step (int): Step size for window size.
-    Returns:
-        window_size (int): Dynamic window size.
-    """
-    B, L, C = x.shape
-    H = int(np.sqrt(L))
-    W = H
-    window_size = min(min(H, W) // 2, max_size)
-    window_size = max(window_size, min_size)
-    window_size = window_size - (window_size - min_size) % step
-    return window_size
 
 class SwinTransformerBlock(nn.Module):
     """ Swin Transformer Block.
@@ -314,7 +183,7 @@ class SwinTransformerBlock(nn.Module):
 
     def __init__(self, dim, num_heads, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+                 act_layer=SwishGLU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
@@ -332,6 +201,7 @@ class SwinTransformerBlock(nn.Module):
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
         self.H = None
         self.W = None
 
@@ -346,7 +216,6 @@ class SwinTransformerBlock(nn.Module):
         H, W = self.H, self.W
         assert L == H * W, "input feature has wrong size"
 
-        self.window_size = get_window_size(x)
         shortcut = x
         x = self.norm1(x)
         x = x.view(B, H, W, C)
@@ -365,9 +234,6 @@ class SwinTransformerBlock(nn.Module):
         else:
             shifted_x = x
             attn_mask = None
-
-
-        
 
         # partition windows
         x_windows = window_partition(shifted_x, self.window_size)  # nW*B, window_size, window_size, C
@@ -396,8 +262,6 @@ class SwinTransformerBlock(nn.Module):
         x = x + self.drop_path(self.mlp(self.norm2(x)))
 
         return x
-
-
 
 
 class PatchMerging(nn.Module):
