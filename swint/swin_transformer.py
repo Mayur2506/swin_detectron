@@ -27,10 +27,18 @@ class SwishGLU(nn.Module):
     :math:`\text{GLU}(x) = \frac{x_1 + x_2}{2}` where :math:`x = [x_1, x_2]`.
     """
     def forward(self, input: Tensor) -> Tensor:
-        x1, x2 = torch.chunk(input, 2, dim=-1)
+        # Get the size of the last dimension
+        last_dim = input.size(-1)
+
+        # Split the input tensor into two halves
+        x1 = input[:, :last_dim // 2]
+        x2 = input[:, last_dim // 2:]
+
         swish = x1 * torch.sigmoid(x1)
         glu = (x1 + x2) / 2
+
         return swish * glu
+
 class Mlp(nn.Module):
     """ Multilayer perceptron."""
 
