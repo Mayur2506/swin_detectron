@@ -26,17 +26,20 @@ class SwishGLU(nn.Module):
     where :math:`\text{Swish}(x) = x * \sigmoid(x)` and
     :math:`\text{GLU}(x) = \frac{x_1 + x_2}{2}` where :math:`x = [x_1, x_2]`.
     """
+    def __init__(self, approximate: str = 'none') -> None:
+        super(SwishGLU, self).__init__()
+        self.approximate = approximate
     def forward(self, input: Tensor) -> Tensor:
         # Compute Swish
         swish = input * torch.sigmoid(input)
 
         # Compute GLU
         glu = F.glu(input, dim=-1)
-        glu = glu.unsqueeze(-1).repeat(1, 1, 2)
+        combined = swish * glu
+        return F.gelu(combined, approximate='none')
 
-        return swish
-
-
+    def extra_repr(self) -> str:
+        return 'approximate={}'.format(self.approximate)
 
 class Mlp(nn.Module):
     """ Multilayer perceptron."""
