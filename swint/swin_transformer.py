@@ -32,7 +32,7 @@ class SwishGLU(nn.Module):
 
         # Compute GLU
         glu = F.glu(input, dim=-1)
-        glu = glu.unsqueeze(-1).expand(swish.size(0), swish.size(1), swish.size(2), 1)
+        glu = glu.unsqueeze(-1).repeat(1, 1, 2)
 
         return swish * glu
 
