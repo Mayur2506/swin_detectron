@@ -27,9 +27,13 @@ class SwishGLU(nn.Module):
     :math:`\text{GLU}(x) = \frac{x_1 + x_2}{2}` where :math:`x = [x_1, x_2]`.
     """
     def forward(self, input: Tensor) -> Tensor:
-        # Get the size of the last dimension
+        # Compute Swish
         swish = input * torch.sigmoid(input)
+
+        # Compute GLU
         glu = F.glu(input, dim=-1)
+        glu = glu.unsqueeze(-1).expand_as(swish)
+
         return swish * glu
 
 
