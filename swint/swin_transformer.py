@@ -28,19 +28,10 @@ class SwishGLU(nn.Module):
     """
     def forward(self, input: Tensor) -> Tensor:
         # Get the size of the last dimension
-        last_dim = input.size(-1)
-
-        # Split the input tensor into two halves
-        x1 = input[:, :last_dim // 2]
-        x2 = input[:, last_dim // 2:]
-
-        if x1.size(-1) != x2.size(-1):
-            x2 = F.pad(x2, (0, x1.size(-1) - x2.size(-1)), "constant", 0)
-
-        swish = x1 * torch.sigmoid(x1)
-        glu = (x1 + x2) / 2
-
+        swish = input * torch.sigmoid(input)
+        glu = F.glu(input, dim=-1)
         return swish * glu
+
 
 
 class Mlp(nn.Module):
