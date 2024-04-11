@@ -34,10 +34,14 @@ class SwishGLU(nn.Module):
         x1 = input[:, :last_dim // 2]
         x2 = input[:, last_dim // 2:]
 
+        if x1.size(-1) != x2.size(-1):
+            x2 = F.pad(x2, (0, x1.size(-1) - x2.size(-1)), "constant", 0)
+
         swish = x1 * torch.sigmoid(x1)
         glu = (x1 + x2) / 2
 
         return swish * glu
+
 
 class Mlp(nn.Module):
     """ Multilayer perceptron."""
