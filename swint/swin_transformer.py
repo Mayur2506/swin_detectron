@@ -32,11 +32,7 @@ class SwishGLU(nn.Module):
     def forward(self, input: Tensor) -> Tensor:
         # Compute Swish
         swish = input * torch.sigmoid(input)
-
-        # Compute GLU
-        glu = F.glu(input, dim=-1)
-        combined = swish * glu
-        return F.gelu(combined, approximate='none')
+        return F.gelu(swish, approximate='none')
 
     def extra_repr(self) -> str:
         return 'approximate={}'.format(self.approximate)
