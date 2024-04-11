@@ -34,7 +34,7 @@ class SwishGLU(nn.Module):
         glu = F.glu(input, dim=-1)
         glu = glu.unsqueeze(-1).repeat(1, 1, 2)
 
-        return swish * glu
+        return swish
 
 
 
