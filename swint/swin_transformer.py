@@ -37,6 +37,19 @@ class SwishGLU(nn.Module):
 
     def extra_repr(self) -> str:
         return 'approximate={}'.format(self.approximate)
+class DynamicWindowSize(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(DynamicWindowSize, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        out = self.fc1(x)
+        out = self.relu(out)
+        out = self.fc2(out)
+        return out
+
 
 class Mlp(nn.Module):
     """ Multilayer perceptron."""
@@ -143,6 +156,13 @@ class WindowAttention(nn.Module):
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
         B_, N, C = x.shape
+        avg_pooled_features = torch.mean(x, dim=1)
+        predicted_window_size = self.window_size_predictor(avg_pooled_features)
+        predicted_window_size = torch.round(predicted_window_size).long()
+        self.window_size = min(max(predicted_window_size.item(), 1), N)
+
+
+        
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
