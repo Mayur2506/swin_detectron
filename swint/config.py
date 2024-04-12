@@ -17,4 +17,4 @@ def add_swint_config(cfg):
 
     # addation
     cfg.MODEL.FPN.TOP_LEVELS = 2
-    cfg.SOLVER.OPTIMIZER = "AdamW"
+    cfg.SOLVER.OPTIMIZER = "RAdam"

@@ -19,7 +19,6 @@ from detectron2.layers import ShapeSpec
 from torch import Tensor
 
 
-
 class SwishGLU(nn.Module):
     r"""Applies the Swish-Gated Linear Unit (SwishGLU) function:
     .. math::
