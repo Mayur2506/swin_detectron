@@ -38,12 +38,12 @@ class SwishGLU(nn.Module):
         return 'approximate={}'.format(self.approximate)
 
 class WindowSizePredictor(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, output_dim):
         super(WindowSizePredictor, self).__init__()
         self.mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, input_dim // 2),
             nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
+            nn.Linear(input_dim // 2, output_dim)
         )
 
     def forward(self, x):
@@ -205,7 +205,7 @@ class SwinTransformerBlock(nn.Module):
         self.dim = dim
         self.num_heads = num_heads
         self.window_size=window_size
-        self.window_size_predictor = WindowSizePredictor(input_dim=dim, hidden_dim=int(self.dim * self.mlp_ratio), output_dim=1)
+        self.window_size_predictor = WindowSizePredictor(input_dim=dim,output_dim=1)
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
