@@ -205,7 +205,7 @@ class SwinTransformerBlock(nn.Module):
         self.dim = dim
         self.num_heads = num_heads
         self.window_size=window_size
-        self.window_size_predictor = WindowSizePredictor(input_dim=dim, hidden_dim=64, output_dim=1)
+        self.window_size_predictor = WindowSizePredictor(input_dim=dim, hidden_dim=int(self.dim * self.mlp_ratio), output_dim=1)
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
@@ -230,9 +230,8 @@ class SwinTransformerBlock(nn.Module):
             H, W: Spatial resolution of the input feature.
             mask_matrix: Attention mask for cyclic shift.
         """
-        mlp_hidden_dim = int(self.dim * self.mlp_ratio)
         x_reshaped = x.transpose(1, 2)
-        window_size_pred = self.window_size_predictor(x_reshaped,mlp_hidden_dim,1)
+        window_size_pred = self.window_size_predictor(x_reshaped)
         window_sizes = torch.clamp(torch.round(window_size_pred.squeeze(1)), min=1, max=21).int()
         self.window_size=torch.max(window_sizes).item()
         B, L, C = x.shape
