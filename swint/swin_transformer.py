@@ -205,7 +205,7 @@ class SwinTransformerBlock(nn.Module):
         self.dim = dim
         self.num_heads = num_heads
         self.window_size=window_size
-        self.window_size_predictor = WindowSizePredictor(input_dim=dim, hidden_dim=mlp_hidden_dim, output_dim=1)
+        self.window_size_predictor = WindowSizePredictor(input_dim=dim, hidden_dim=64, output_dim=1)
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
