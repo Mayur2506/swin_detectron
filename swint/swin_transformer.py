@@ -230,8 +230,7 @@ class SwinTransformerBlock(nn.Module):
             H, W: Spatial resolution of the input feature.
             mask_matrix: Attention mask for cyclic shift.
         """
-        x_reshaped = x.transpose(1, 2)
-        window_size_pred = self.window_size_predictor(x_reshaped)
+        window_size_pred = self.window_size_predictor(x.mean(dim=(1, 2)))
         window_sizes = torch.clamp(torch.round(window_size_pred.squeeze(1)), min=1, max=21).int()
         self.window_size=torch.max(window_sizes).item()
         B, L, C = x.shape
