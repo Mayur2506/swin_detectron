@@ -18,6 +18,17 @@ from detectron2.modeling.backbone.fpn import FPN, LastLevelMaxPool, LastLevelP6P
 from detectron2.layers import ShapeSpec
 from torch import Tensor
 
+class WindowSizePredictor(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(WindowSizePredictor, self).__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, input_dim // 2),
+            nn.ReLU(),
+            nn.Linear(input_dim // 2, output_dim)
+        )
+
+    def forward(self, x):
+        return self.mlp(x)
 
 class SwishGLU(nn.Module):
     r"""Applies the Swish-Gated Linear Unit (SwishGLU) function:
@@ -36,18 +47,6 @@ class SwishGLU(nn.Module):
 
     def extra_repr(self) -> str:
         return 'approximate={}'.format(self.approximate)
-
-class WindowSizePredictor(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(WindowSizePredictor, self).__init__()
-        self.mlp = nn.Sequential(
-            nn.Linear(input_dim, input_dim // 2),
-            nn.ReLU(),
-            nn.Linear(input_dim // 2, output_dim)
-        )
-
-    def forward(self, x):
-        return self.mlp(x)
 
 class Mlp(nn.Module):
     """ Multilayer perceptron."""
@@ -204,8 +203,7 @@ class SwinTransformerBlock(nn.Module):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
-        self.window_size=8
-        self.window_size_predictor = WindowSizePredictor(input_dim=dim,output_dim=1)
+        self.window_size = window_size
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
@@ -230,10 +228,6 @@ class SwinTransformerBlock(nn.Module):
             H, W: Spatial resolution of the input feature.
             mask_matrix: Attention mask for cyclic shift.
         """
-        print(self.window_size)
-        # window_size_pred = self.window_size_predictor(x.mean(dim=(1, 2)))
-        # window_sizes = torch.clamp(torch.round(window_size_pred.squeeze(1)), min=1, max=21).int()
-        # self.window_size=8
         B, L, C = x.shape
         H, W = self.H, self.W
         assert L == H * W, "input feature has wrong size"
@@ -578,6 +572,10 @@ class SwinTransformer(Backbone):
  
         num_features = [int(embed_dim * 2 ** i) for i in range(self.num_layers)]
         self.num_features = num_features
+        self.window_size_predictors = nn.ModuleList([
+            WindowSizePredictor(self.num_features[i], 1) for i in range(self.num_layers)
+        ])
+
 
         # add a norm layer for each output
         for i_layer in range(self.num_layers):
@@ -627,7 +625,6 @@ class SwinTransformer(Backbone):
     def forward(self, x):
         """Forward function."""
         x = self.patch_embed(x)
-
         Wh, Ww = x.size(2), x.size(3)
         if self.ape:
             # interpolate the position embedding to the corresponding size
@@ -640,6 +637,11 @@ class SwinTransformer(Backbone):
         outs = {}
         for i in range(self.num_layers):
             layer = self.layers[i]
+            predicted_window_size = self.window_size_predictors[i](x)
+            predicted_window_sizes=torch.clamp(torch.round(predicted_window_size.squeeze(1)), min=1, max=21).int()
+            predicted_window_size_f=torch.max(predicted_window_sizes).item()
+            layer.window_size = predicted_window_size_f
+            layer.shift_size = predicted_window_size_f // 2
             x_out, H, W, x, Wh, Ww = layer(x, Wh, Ww)
             name = f'stage{i+2}'
             if name in self.out_features:
