@@ -204,7 +204,7 @@ class SwinTransformerBlock(nn.Module):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
-        self.window_size=window_size
+        self.window_size=8
         self.window_size_predictor = WindowSizePredictor(input_dim=dim,output_dim=1)
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
