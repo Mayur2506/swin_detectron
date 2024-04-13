@@ -545,6 +545,17 @@ class SwinTransformer(Backbone):
 
         self._out_feature_strides = {}
         self._out_feature_channels = {}
+        num_features = [int(embed_dim * 2 ** i) for i in range(self.num_layers)]
+        self.num_features = num_features
+        self.window_size_predictors = nn.ModuleList([
+            WindowSizePredictor(self.num_features[i], 1) for i in range(self.num_layers)
+        ])
+        self.predicted_windows=nn.ModuleList()
+        for i in range(self.num_layers):
+            predicted_window_size = self.window_size_predictors[i](self.num_features[i])
+            predicted_window_sizes=torch.clamp(torch.round(predicted_window_size.squeeze(1)), min=8, max=21).int()
+            predicted_window_size_f=torch.max(predicted_window_sizes).item()
+            self.predicted_windows.append(predicted_window_size_f)
 
         # build layers
         self.layers = nn.ModuleList()
@@ -553,7 +564,7 @@ class SwinTransformer(Backbone):
                 dim=int(embed_dim * 2 ** i_layer),
                 depth=depths[i_layer],
                 num_heads=num_heads[i_layer],
-                window_size=window_size,
+                window_size=self.predicted_windows[i_layer],
                 mlp_ratio=mlp_ratio,
                 qkv_bias=qkv_bias,
                 qk_scale=qk_scale,
@@ -570,11 +581,7 @@ class SwinTransformer(Backbone):
                 self._out_feature_channels[stage] = embed_dim * 2 ** i_layer
                 self._out_feature_strides[stage] = 4 * 2 ** i_layer
  
-        num_features = [int(embed_dim * 2 ** i) for i in range(self.num_layers)]
-        self.num_features = num_features
-        self.window_size_predictors = nn.ModuleList([
-            WindowSizePredictor(self.num_features[i], 1) for i in range(self.num_layers)
-        ])
+
 
 
         # add a norm layer for each output
@@ -637,12 +644,6 @@ class SwinTransformer(Backbone):
         outs = {}
         for i in range(self.num_layers):
             layer = self.layers[i]
-            predicted_window_size = self.window_size_predictors[i](x)
-            predicted_window_sizes=torch.clamp(torch.round(predicted_window_size.squeeze(1)), min=8, max=21).int()
-            predicted_window_size_f=torch.max(predicted_window_sizes).item()
-            print("mayur ",predicted_window_size_f)
-            layer.window_size = predicted_window_size_f
-            layer.shift_size = predicted_window_size_f // 2
             x_out, H, W, x, Wh, Ww = layer(x, Wh, Ww)
             name = f'stage{i+2}'
             if name in self.out_features:
