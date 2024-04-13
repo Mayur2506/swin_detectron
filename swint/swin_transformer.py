@@ -638,9 +638,9 @@ class SwinTransformer(Backbone):
         for i in range(self.num_layers):
             layer = self.layers[i]
             predicted_window_size = self.window_size_predictors[i](x)
-            predicted_window_sizes=torch.clamp(torch.round(predicted_window_size.squeeze(1)), min=1, max=21).int()
+            predicted_window_sizes=torch.clamp(torch.round(predicted_window_size.squeeze(1)), min=7, max=21).int()
             predicted_window_size_f=torch.max(predicted_window_sizes).item()
-            print(predicted_window_size_f)
+            print("mayur ",predicted_window_size_f)
             layer.window_size = predicted_window_size_f
             layer.shift_size = predicted_window_size_f // 2
             x_out, H, W, x, Wh, Ww = layer(x, Wh, Ww)
