@@ -203,11 +203,10 @@ class SwinTransformerBlock(nn.Module):
         norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
     """
 
-    def __init__(self, parent_basic_layer, dim, num_heads, window_size=7, shift_size=0,
+    def __init__(self, dim, num_heads, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
                  act_layer=SwishGLU, norm_layer=nn.LayerNorm):
         super().__init__()
-        self.parent_basic_layer = parent_basic_layer
         self.dim = dim
         self.num_heads = num_heads
         self.window_size = window_size
@@ -235,7 +234,6 @@ class SwinTransformerBlock(nn.Module):
             H, W: Spatial resolution of the input feature.
             mask_matrix: Attention mask for cyclic shift.
         """
-        self.window_size = self.parent_basic_layer.window_size       #Using the dynamic window size
         B, L, C = x.shape
         H, W = self.H, self.W
         assert L == H * W, "input feature has wrong size"
@@ -370,7 +368,7 @@ class BasicLayer(nn.Module):
         # build blocks
         self.blocks = nn.ModuleList([
             SwinTransformerBlock(
-                parent_basic_layer=self,
+                # parent_basic_layer=self,
                 dim=dim,
                 num_heads=num_heads,
                 window_size=window_size,
@@ -398,6 +396,9 @@ class BasicLayer(nn.Module):
         """
 
         # calculate attention mask for SW-MSA
+        for block in self.blocks:
+            block.window_size = self.window_size
+
         Hp = int(np.ceil(H / self.window_size)) * self.window_size
         Wp = int(np.ceil(W / self.window_size)) * self.window_size
         img_mask = torch.zeros((1, Hp, Wp, 1), device=x.device)  # 1 Hp Wp 1
