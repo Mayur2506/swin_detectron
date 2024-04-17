@@ -632,7 +632,7 @@ class SwinTransformer(Backbone):
 
         window_size_temp = calculate_window_size(x)
 
-        image_tensor = image_tensor.float()
+        image_tensor = x.float()
         if(window_size_temp == 8):
             x = F.interpolate(image_tensor, size=256, mode='bilinear', align_corners=False)
         else:
