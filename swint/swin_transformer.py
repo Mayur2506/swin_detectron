@@ -547,15 +547,13 @@ class SwinTransformer(Backbone):
         self._out_feature_channels = {}
         num_features = [int(embed_dim * 2 ** i) for i in range(self.num_layers)]
         self.num_features = num_features
-        self.window_size_predictors = nn.ModuleList([
-            WindowSizePredictor(self.num_features[i], 1) for i in range(self.num_layers)
-        ])
-        self.predicted_windows=nn.ModuleList()
-        for i in range(self.num_layers):
-            predicted_window_size = self.window_size_predictors[i](self.num_features[i])
-            predicted_window_sizes=torch.clamp(torch.round(predicted_window_size.squeeze(1)), min=8, max=21).int()
-            predicted_window_size_f=torch.max(predicted_window_sizes).item()
-            self.predicted_windows.append(predicted_window_size_f)
+        self.window_size_predictor = WindowSizePredictor(input_dim=embed_dim, output_dim=1)
+        # self.predicted_windows=nn.ModuleList()
+        # for i in range(self.num_layers):
+        #     predicted_window_size = self.window_size_predictors[i](self.num_features[i])
+        #     predicted_window_sizes=torch.clamp(torch.round(predicted_window_size.squeeze(1)), min=8, max=21).int()
+        #     predicted_window_size_f=torch.max(predicted_window_sizes).item()
+        #     self.predicted_windows.append(predicted_window_size_f)
 
         # build layers
         self.layers = nn.ModuleList()
@@ -564,7 +562,7 @@ class SwinTransformer(Backbone):
                 dim=int(embed_dim * 2 ** i_layer),
                 depth=depths[i_layer],
                 num_heads=num_heads[i_layer],
-                window_size=self.predicted_windows[i_layer],
+                window_size=self.window_size,
                 mlp_ratio=mlp_ratio,
                 qkv_bias=qkv_bias,
                 qk_scale=qk_scale,
@@ -632,7 +630,7 @@ class SwinTransformer(Backbone):
     def forward(self, x):
         """Forward function."""
         x = self.patch_embed(x)
-        Wh, Ww = x.size(2), x.size(3)
+        batch_len, seq_len, Wh, Ww = x.size(0), x.size(1), x.size(2), x.size(3)
         if self.ape:
             # interpolate the position embedding to the corresponding size
             absolute_pos_embed = F.interpolate(self.absolute_pos_embed, size=(Wh, Ww), mode='bicubic')
@@ -644,6 +642,10 @@ class SwinTransformer(Backbone):
         outs = {}
         for i in range(self.num_layers):
             layer = self.layers[i]
+            predicted_window_size = self.window_size_predictor(layer.num_features[i])
+            predicted_window_sizes=torch.clamp(torch.round(predicted_window_size.squeeze(1)), min=8, max=21).int()
+            predicted_window_size_f=torch.max(predicted_window_sizes).item()
+            layer.window_size=predicted_window_size_f
             x_out, H, W, x, Wh, Ww = layer(x, Wh, Ww)
             name = f'stage{i+2}'
             if name in self.out_features:
