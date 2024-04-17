@@ -630,7 +630,7 @@ class SwinTransformer(Backbone):
 
     def forward(self, x):
 
-        window_size_temp = calculate_window_size()
+        window_size_temp = calculate_window_size(x)
 
         image_tensor = image_tensor.float()
         if(window_size_temp == 8):
