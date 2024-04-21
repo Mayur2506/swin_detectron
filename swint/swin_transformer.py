@@ -157,9 +157,9 @@ class WindowAttention(nn.Module):
         print(q.shape,k.shape,v.shape)
         q = q * self.scale
         attn_local = (q @ k.transpose(-2, -1))
-        attn_global = F.interpolate(attn_local.unsqueeze(2), size=196, mode='nearest').squeeze(2)
+        # attn_global = F.interpolate(attn_local.unsqueeze(2), size=196, mode='nearest').squeeze(2)
         print("mayur",attn_local.shape)
-        print("mayur1",attn_global.shape)
+        # print("mayur1",attn_global.shape)
 
 
         # q = q.unsqueeze(-2)
