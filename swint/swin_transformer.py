@@ -154,7 +154,7 @@ class WindowAttention(nn.Module):
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        print(q,k,v)
+        print(q.shape,k.shape,v.shape)
         q = q * self.scale
         attn_local = (q @ k.transpose(-2, -1))
 
