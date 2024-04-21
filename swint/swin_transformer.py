@@ -172,23 +172,23 @@ class WindowAttention(nn.Module):
         relative_position_bias_global = self.relative_position_bias_table_global[self.relative_position_index_global.view(-1)].view(
             self.global_window_size[0] * self.global_window_size[1], self.global_window_size[0] * self.global_window_size[1], -1)
         relative_position_bias_global = relative_position_bias_global.permute(2, 0, 1).contiguous()
-        attn_global = attn_global + relative_position_bias_global.unsqueeze(0)
+        # attn_global = attn_global + relative_position_bias_global.unsqueeze(0)
 
 
         if mask is not None:
             nW = mask.shape[0]
             attn_local = attn_local.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
             attn_local = attn_local.view(-1, self.num_heads, N, N)
-            attn_global = attn_global.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
-            attn_global = attn_global.view(-1, self.num_heads, N, N)
-            attn_local = self.softmax(attn_local)
-            attn_global = self.softmax(attn_global)
+            # attn_global = attn_global.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            # attn_global = attn_global.view(-1, self.num_heads, N, N)
+            # attn_local = self.softmax(attn_local)
+            # attn_global = self.softmax(attn_global)
         else:
             attn_local = self.softmax(attn_local)
-            attn_global = self.softmax(attn_global)
+            # attn_global = self.softmax(attn_global)
 
-        attn = (attn_local + attn_global) / 2
-        attn = self.attn_drop(attn)
+        # attn = (attn_local + attn_global) / 2
+        attn = self.attn_drop(attn_local)
 
         x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
         x = self.proj(x)
