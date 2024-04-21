@@ -161,7 +161,7 @@ class WindowAttention(nn.Module):
 
         relative_position_bias_global = self.relative_position_bias_table[self.relative_position_index_global.view(-1)].view(
             self.global_window_size[0] * self.global_window_size[1], self.global_window_size[0] * self.global_window_size[1], -1)
-        relative_position_bias_global = relative_position_bias_global.permute(2, 0, 1).contiguous()
+        relative_position_bias_global = relative_position_bias_global.permute(2, 0, 1).contiguous().unsqueeze(1)
         attn_global = attn_global + relative_position_bias_global.unsqueeze(0)
 
 
