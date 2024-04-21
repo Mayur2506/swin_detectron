@@ -101,16 +101,16 @@ class WindowAttention(nn.Module):
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
 
-    def __init__(self, dim, num_heads, window_size, global_window_size, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, num_heads, window_size,qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
         self.window_size = window_size
-        self.global_window_size = global_window_size
+        self.global_window_size = window_size
         self.scale = qk_scale or (dim // num_heads) ** -0.5
 
         self.relative_position_bias_table = nn.Parameter(
-            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1) + (2 * global_window_size[0] - 1) * (2 * global_window_size[1] - 1), num_heads))
+            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1) + (2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))
 
         coords_h_local = torch.arange(self.window_size[0])
         coords_w_local = torch.arange(self.window_size[1])
