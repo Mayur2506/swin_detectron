@@ -154,13 +154,16 @@ class WindowAttention(nn.Module):
         attn_local = (q @ k.transpose(-2, -1))
         attn_global = torch.matmul(q.transpose(1, 2), k.transpose(1, 2).transpose(-2, -1))
 
-        relative_position_bias_local = self.relative_position_bias_table[:self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1]].view(
-            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1).permute(2, 0, 1).contiguous()
+        relative_position_bias_local = self.relative_position_bias_table[self.relative_position_index_local.view(-1)].view(
+            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)
+        relative_position_bias_local = relative_position_bias_local.permute(2, 0, 1).contiguous()
         attn_local = attn_local + relative_position_bias_local.unsqueeze(0)
 
-        relative_position_bias_global = self.relative_position_bias_table[self.window_size[0] * self.window_size[1]:, :].view(
-            self.global_window_size[0] * self.global_window_size[1], self.global_window_size[0] * self.global_window_size[1], -1).permute(2, 0, 1).contiguous()
+        relative_position_bias_global = self.relative_position_bias_table[self.relative_position_index_global.view(-1)].view(
+            self.global_window_size[0] * self.global_window_size[1], self.global_window_size[0] * self.global_window_size[1], -1)
+        relative_position_bias_global = relative_position_bias_global.permute(2, 0, 1).contiguous()
         attn_global = attn_global + relative_position_bias_global.unsqueeze(0)
+
 
         if mask is not None:
             nW = mask.shape[0]
