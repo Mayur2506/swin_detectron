@@ -152,10 +152,7 @@ class WindowAttention(nn.Module):
 
         q = q * self.scale
         attn_local = (q @ k.transpose(-2, -1))
-        q_global = q.reshape(B_, self.global_window_size[0] * self.global_window_size[1], self.num_heads, N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
-        k_global = k.reshape(B_, self.global_window_size[0] * self.global_window_size[1], self.num_heads, N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
-        attn_global = (q_global @ k_global.transpose(-2, -1))
-
+        attn_global = (q @ k.transpose(-2, -1))
 
         relative_position_bias_local = self.relative_position_bias_table[self.relative_position_index_local.view(-1)].view(
             self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)
@@ -172,11 +169,13 @@ class WindowAttention(nn.Module):
             nW = mask.shape[0]
             attn_local = attn_local.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
             attn_local = attn_local.view(-1, self.num_heads, N, N)
-            attn_global = attn_global.view(B_ // nW, nW, self.num_heads, N // (self.global_window_size[0] * self.global_window_size[1]), self.global_window_size[0] * self.global_window_size[1]) + mask.unsqueeze(1).unsqueeze(0)
-            attn_global = attn_global.view(-1, self.num_heads, N // (self.global_window_size[0] * self.global_window_size[1]), self.global_window_size[0] * self.global_window_size[1])
-
-        attn_local = self.softmax(attn_local)
-        attn_global = self.softmax(attn_global)
+            attn_global = attn_global.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            attn_global = attn_global.view(-1, self.num_heads, N, N)
+            attn_local = self.softmax(attn)
+            attn_global = self.softmax(attn)
+        else:
+            attn_local = self.softmax(attn_local)
+            attn_global = self.softmax(attn_global)
 
         attn = (attn_local + attn_global) / 2
         attn = self.attn_drop(attn)
