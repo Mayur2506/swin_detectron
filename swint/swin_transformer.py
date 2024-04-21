@@ -106,7 +106,7 @@ class WindowAttention(nn.Module):
         self.dim = dim
         self.num_heads = num_heads
         self.window_size = window_size
-        self.global_window_size = to_2tuple(14)
+        self.global_window_size = to_2tuple(7)
         self.scale = qk_scale or (dim // num_heads) ** -0.5
 
         self.relative_position_bias_table = nn.Parameter(
