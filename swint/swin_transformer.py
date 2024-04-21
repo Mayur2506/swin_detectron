@@ -112,6 +112,9 @@ class WindowAttention(nn.Module):
         self.relative_position_bias_table = nn.Parameter(
             torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1) + (2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))
 
+        self.relative_position_bias_table_global = nn.Parameter(
+            torch.zeros((2 * self.global_window_size[0] - 1) * (2 * self.global_window_size[1] - 1) + (2 * self.global_window_size[0] - 1) * (2 * self.global_window_size[1] - 1), num_heads))
+
         coords_h_local = torch.arange(self.window_size[0])
         coords_w_local = torch.arange(self.window_size[1])
         coords_local = torch.stack(torch.meshgrid([coords_h_local, coords_w_local]))
@@ -143,6 +146,7 @@ class WindowAttention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
 
         trunc_normal_(self.relative_position_bias_table, std=.02)
+        trunc_normal_(self.relative_position_bias_table_global, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x, mask=None):
@@ -159,7 +163,7 @@ class WindowAttention(nn.Module):
         relative_position_bias_local = relative_position_bias_local.permute(2, 0, 1).contiguous()
         attn_local = attn_local + relative_position_bias_local.unsqueeze(0)
 
-        relative_position_bias_global = self.relative_position_bias_table[self.relative_position_index_global.view(-1)].view(
+        relative_position_bias_global = self.relative_position_bias_table_global[self.relative_position_index_global.view(-1)].view(
             self.global_window_size[0] * self.global_window_size[1], self.global_window_size[0] * self.global_window_size[1], -1)
         relative_position_bias_global = relative_position_bias_global.permute(2, 0, 1).contiguous()
         attn_global = attn_global + relative_position_bias_global.unsqueeze(0)
