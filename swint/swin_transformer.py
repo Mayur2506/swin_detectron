@@ -157,16 +157,17 @@ class WindowAttention(nn.Module):
         print(q.shape,k.shape,v.shape)
         q = q * self.scale
         attn_local = (q @ k.transpose(-2, -1))
+        print("mayur",attn_local.shape)
 
-        q = q.unsqueeze(-2)
-        k = k.unsqueeze(-2)
-        v = v.unsqueeze(-2)
-        q_global = q.reshape(B_, self.global_window_size[0], self.global_window_size[1], self.num_heads, 1, N, C // self.num_heads)
-        k_global = k.reshape(B_, self.global_window_size[0], self.global_window_size[1], self.num_heads, 1, N, C // self.num_heads)
-        q_global = q_global.permute(0, 3, 1, 2, 4, 5, 6).contiguous().view(B_, self.num_heads, self.global_window_size[0] * self.global_window_size[1], N, C // self.num_heads)
-        k_global = k_global.permute(0, 3, 1, 2, 4, 5, 6).contiguous().view(B_, self.num_heads, self.global_window_size[0] * self.global_window_size[1], N, C // self.num_heads)
-        attn_global = (q_global @ k_global.transpose(-2, -1))
-        attn_global = attn_global.squeeze(-2)
+        # q = q.unsqueeze(-2)
+        # k = k.unsqueeze(-2)
+        # v = v.unsqueeze(-2)
+        # q_global = q.reshape(B_, self.global_window_size[0], self.global_window_size[1], self.num_heads, 1, N, C // self.num_heads)
+        # k_global = k.reshape(B_, self.global_window_size[0], self.global_window_size[1], self.num_heads, 1, N, C // self.num_heads)
+        # q_global = q_global.permute(0, 3, 1, 2, 4, 5, 6).contiguous().view(B_, self.num_heads, self.global_window_size[0] * self.global_window_size[1], N, C // self.num_heads)
+        # k_global = k_global.permute(0, 3, 1, 2, 4, 5, 6).contiguous().view(B_, self.num_heads, self.global_window_size[0] * self.global_window_size[1], N, C // self.num_heads)
+        # attn_global = (q_global @ k_global.transpose(-2, -1))
+        # attn_global = attn_global.squeeze(-2)
 
 
         # q_global = q.reshape(B_, self.global_window_size[0], self.global_window_size[1], self.num_heads, N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
@@ -183,7 +184,7 @@ class WindowAttention(nn.Module):
         relative_position_bias_global = self.relative_position_bias_table_global[self.relative_position_index_global.view(-1)].view(
             self.global_window_size[0] * self.global_window_size[1], self.global_window_size[0] * self.global_window_size[1], -1)
         relative_position_bias_global = relative_position_bias_global.permute(2, 0, 1).contiguous()
-        attn_global = attn_global + relative_position_bias_global.unsqueeze(0)
+        # attn_global = attn_global + relative_position_bias_global.unsqueeze(0)
 
 
         if mask is not None:
@@ -193,12 +194,12 @@ class WindowAttention(nn.Module):
             attn_global = attn_global.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
             attn_global = attn_global.view(-1, self.num_heads, N, N)
             attn_local = self.softmax(attn_local)
-            attn_global = self.softmax(attn_global)
+            # attn_global = self.softmax(attn_global)
         else:
             attn_local = self.softmax(attn_local)
-            attn_global = self.softmax(attn_global)
+            # attn_global = self.softmax(attn_global)
 
-        attn = (attn_local + attn_global) / 2
+        # attn = (attn_local + attn_global) / 2
         attn = self.attn_drop(attn_local)
 
         x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
