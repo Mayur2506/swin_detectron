@@ -191,8 +191,8 @@ class WindowAttention(nn.Module):
             nW = mask.shape[0]
             attn_local = attn_local.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
             attn_local = attn_local.view(-1, self.num_heads, N, N)
-            attn_global = attn_global.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
-            attn_global = attn_global.view(-1, self.num_heads, N, N)
+            # attn_global = attn_global.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            # attn_global = attn_global.view(-1, self.num_heads, N, N)
             attn_local = self.softmax(attn_local)
             # attn_global = self.softmax(attn_global)
         else:
