@@ -163,21 +163,20 @@ class WindowAttention(nn.Module):
         num_batches = attn_local.shape[2] // batch_size
 
         # Initialize an empty list to store the interpolated batches
-        attn_global_batches = []
+        # attn_global_batches = []
 
         # Interpolate attn_local in batches
+# Interpolate attn_local in batches
         for i in range(num_batches):
             start_idx = i * batch_size
             end_idx = min((i + 1) * batch_size, attn_local.shape[2])
-            attn_local_batch = attn_local[:, :, start_idx:end_idx, :]
-        # In-place interpolation
-            F.interpolate(attn_local_batch.unsqueeze(2), size=196, mode='nearest', out=attn_local_batch)
-            attn_global_batches.append(attn_local_batch)
+            attn_local[:, :, start_idx:end_idx, :] = torch.nn.functional.interpolate(
+                attn_local[:, :, start_idx:end_idx, :].unsqueeze(2),
+                size=196,
+                mode='nearest'
+            ).squeeze(2)
 
-        # Concatenate the interpolated batches along the third dimension
-        attn_global = torch.cat(attn_global_batches, dim=2)
-
-        print("mayur1",attn_global.shape)
+        print("attn_global:", attn_local.shape)
 
 
         # q = q.unsqueeze(-2)
