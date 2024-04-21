@@ -154,14 +154,15 @@ class WindowAttention(nn.Module):
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
+        print(q,k,v)
         q = q * self.scale
         attn_local = (q @ k.transpose(-2, -1))
-        
-        q_global = q.reshape(B_, self.global_window_size[0], self.global_window_size[1], self.num_heads, N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
-        k_global = k.reshape(B_, self.global_window_size[0], self.global_window_size[1], self.num_heads, N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
-        q_global = q_global.permute(0, 3, 1, 2, 4, 5).contiguous().view(B_, self.num_heads, self.global_window_size[0] * self.global_window_size[1], N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
-        k_global = k_global.permute(0, 3, 1, 2, 4, 5).contiguous().view(B_, self.num_heads, self.global_window_size[0] * self.global_window_size[1], N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
-        attn_global = (q_global @ k_global.transpose(-2, -1))
+
+        # q_global = q.reshape(B_, self.global_window_size[0], self.global_window_size[1], self.num_heads, N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
+        # k_global = k.reshape(B_, self.global_window_size[0], self.global_window_size[1], self.num_heads, N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
+        # q_global = q_global.permute(0, 3, 1, 2, 4, 5).contiguous().view(B_, self.num_heads, self.global_window_size[0] * self.global_window_size[1], N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
+        # k_global = k_global.permute(0, 3, 1, 2, 4, 5).contiguous().view(B_, self.num_heads, self.global_window_size[0] * self.global_window_size[1], N // (self.global_window_size[0] * self.global_window_size[1]), C // self.num_heads)
+        # attn_global = (q_global @ k_global.transpose(-2, -1))
 
         relative_position_bias_local = self.relative_position_bias_table[self.relative_position_index_local.view(-1)].view(
             self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)
